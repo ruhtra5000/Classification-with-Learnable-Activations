@@ -21,7 +21,7 @@ HOW TO WORK
 ===========
 1. Fill in the three methods below (remove the ``raise NotImplementedError``).
 2. Plot them to *see* your functions and — overlaid — the derivative your
-   autograd produces:   ``python -m exercises.activations``
+   autograd produces:   ``python -m exercises.q01_activations``
 3. Grade yourself; the checker compares your gradients against finite
    differences and runs the three equations:   ``python -m exercises.check``
 
@@ -43,19 +43,17 @@ class ExTensor(Tensor):
 
     def sigmoid(self) -> Tensor:
         """Logistic sigmoid, 1 / (1 + e^{-x})."""
-        # TODO: forward = 1 / (1 + np.exp(-self.data))
-        #       out = Tensor(forward, (self,), "sigmoid", self.requires_grad)
-        #       backward: self.grad += forward * (1 - forward) * out.grad
+        # TODO: 
         raise NotImplementedError("implement ExTensor.sigmoid")
 
     def swish(self) -> Tensor:
         """Swish / SiLU, x * sigmoid(x)."""
-        # TODO: swish'(x) = s + x*s*(1-s), with s = sigmoid(x).
+        # TODO: 
         raise NotImplementedError("implement ExTensor.swish")
 
     def softplus(self) -> Tensor:
         """Softplus, ln(1 + e^{x}) (a smooth ReLU)."""
-        # TODO: softplus'(x) = sigmoid(x). Use np.log1p(np.exp(self.data)).
+        # TODO: 
         raise NotImplementedError("implement ExTensor.softplus")
 
 

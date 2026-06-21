@@ -45,7 +45,7 @@ class Module:
         class Linear(Module):
             def __init__(self, n_in, n_out):
                 self.weight = Parameter(...)   # learnable
-                self.bias   = Parameter(...)   # learnable
+
 
     the parameters are stored as ordinary attributes. ``named_parameters`` simply
     reads ``vars(self)`` (the instance ``__dict__``) and yields every attribute

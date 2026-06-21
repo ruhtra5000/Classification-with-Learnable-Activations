@@ -18,8 +18,8 @@ Run them with::
     pytest test/test_nn.py
 
 The didactic *visualisation* (a layer as a matrix, and the chain rule over a
-stack of activated layers) now lives separately, in ``learn/viz_nn.py`` (run it
-with ``python -m learn.viz_nn``).
+stack of activated layers) now lives separately, in ``learn/viz02_nn.py`` (run it
+with ``python -m learn.viz02_nn``).
 """
 
 import numpy as np
@@ -208,7 +208,7 @@ def _act_derivative(name: str, z: np.ndarray) -> np.ndarray:
 
     For an elementwise activation, ``act(z).sum().backward()`` leaves
     ``z.grad[i] = act'(z_i)`` — the same local slope the engine multiplies by in
-    its backward pass. (The ``learn/viz_nn.py`` walkthrough uses the same trick.)
+    its backward pass. (The ``learn/viz02_nn.py`` walkthrough uses the same trick.)
     """
     t = cpu.Tensor(z.copy())
     getattr(t, name)().sum().backward()
@@ -219,7 +219,7 @@ def test_three_layer_chain_rule():
     """The chain identity ``dL/dz = dL/da ⊙ act'(z)`` holds at every layer, and
     the stacked gradients match finite differences.
 
-    This is the correctness backbone of the ``learn/viz_nn.py`` walkthrough: it
+    This is the correctness backbone of the ``learn/viz02_nn.py`` walkthrough: it
     confirms that what the demo *narrates* the chain rule does is exactly what the
     engine *computes*, for all three differently-activated layers.
     """

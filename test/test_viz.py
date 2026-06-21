@@ -9,8 +9,8 @@ Run them — and see the actual output — with::
 """
 
 from bert_cpu import engine as cpu
-from learn.viz_engine import demo_gradient_graph
-from learn.viz_nn import demo_linear_chain
+from learn.viz01_engine import demo_gradient_graph
+from learn.viz02_nn import demo_linear_chain
 
 
 def test_viz_engine_runs():

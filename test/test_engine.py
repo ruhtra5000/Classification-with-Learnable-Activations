@@ -11,7 +11,7 @@ Run them with::
     pytest test/test_engine.py
 
 The didactic *visualisation* of the gradient graph now lives separately, in
-``learn/viz_engine.py`` (run it with ``python -m learn.viz_engine``).
+``learn/viz01_engine.py`` (run it with ``python -m learn.viz01_engine``).
 """
 
 import numpy as np

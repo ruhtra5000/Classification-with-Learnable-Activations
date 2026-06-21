@@ -141,7 +141,7 @@ def _expand_reduced(grad: np.ndarray, axis: Axis, keepdims: bool, target_shape: 
     let ``out = z.sum()`` be a scalar:
 
         z = w.T @ x = [ z00  z01  z02 ]    out = z.sum()
-                     [ z10  z11  z12 ]
+                      [ z10  z11  z12 ]
 
         out = z00 + z01 + z02 + z10 + z11 + z12 
 
@@ -405,6 +405,12 @@ class Tensor:
         self.grad: np.ndarray = np.zeros_like(self.data)
         self.requires_grad: bool = requires_grad
         self._backward: Callable[[], None] = lambda: None
+        # ``_children`` are the tensors this one was built from; storing them as
+        # ``_prev`` is what records the *edges* of the computational graph. Each
+        # op (``__add__``, ``__matmul__``, ``cat``, ...) passes its operands here,
+        # so the graph is assembled incrementally as the forward pass runs. Leaf
+        # tensors pass nothing, so ``_prev`` stays empty and a backward traversal
+        # stops there.
         self._prev: set = set(_children)
         self._op: str = _op
 
@@ -449,10 +455,16 @@ class Tensor:
         """
         other = self._as_tensor(other)
         out = Tensor(
-            self.data + other.data,
-            (self, other),
-            "+",
-            self.requires_grad or other.requires_grad,
+            data=self.data + other.data,
+            # ``_children`` are the operands this op consumed. The constructor
+            # stores them as ``out._prev`` (see ``Tensor.__init__``), and *that*
+            # is what builds the computational graph: passing ``(self, other)``
+            # here is the edge "out was produced from self and other". Leaves
+            # (tensors you create directly) pass nothing, so their ``_prev`` is
+            # empty — which is exactly where a backward traversal stops.
+            _children=(self, other),
+            _op="+",
+            requires_grad=self.requires_grad or other.requires_grad,
         )
 
         def _backward() -> None:
@@ -472,10 +484,10 @@ class Tensor:
         """
         other = self._as_tensor(other)
         out = Tensor(
-            self.data * other.data,
-            (self, other),
-            "*",
-            self.requires_grad or other.requires_grad,
+            data=self.data * other.data,
+            _children=(self, other),   # recorded as out._prev -> wires out into the graph
+            _op="*",
+            requires_grad=self.requires_grad or other.requires_grad,
         )
 
         def _backward() -> None:
@@ -494,7 +506,12 @@ class Tensor:
         ``self.grad += n * self**(n-1) * out.grad``.
         """
         assert isinstance(other, (int, float)), "exponent must be a scalar constant"
-        out = Tensor(self.data ** other, (self,), f"**{other}", self.requires_grad)
+        out = Tensor(
+            data=self.data ** other,
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op=f"**{other}",
+            requires_grad=self.requires_grad,
+        )
 
         def _backward() -> None:
             if self.requires_grad:
@@ -511,10 +528,10 @@ class Tensor:
         """
         other = self._as_tensor(other)
         out = Tensor(
-            self.data @ other.data,
-            (self, other),
-            "@",
-            self.requires_grad or other.requires_grad,
+            data=self.data @ other.data,
+            _children=(self, other),   # recorded as out._prev -> wires out into the graph
+            _op="@",
+            requires_grad=self.requires_grad or other.requires_grad,
         )
 
         def _backward() -> None:
@@ -533,7 +550,12 @@ class Tensor:
     # ------------------------------------------------------------------ #
     def exp(self) -> "Tensor":
         """Elementwise natural exponential."""
-        out = Tensor(np.exp(self.data), (self,), "exp", self.requires_grad)
+        out = Tensor(
+            data=np.exp(self.data),
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="exp",
+            requires_grad=self.requires_grad,
+        )
 
         def _backward() -> None:
             if self.requires_grad:
@@ -544,7 +566,12 @@ class Tensor:
 
     def log(self) -> "Tensor":
         """Elementwise natural logarithm."""
-        out = Tensor(np.log(self.data), (self,), "log", self.requires_grad)
+        out = Tensor(
+            data=np.log(self.data),
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="log",
+            requires_grad=self.requires_grad,
+        )
 
         def _backward() -> None:
             if self.requires_grad:
@@ -555,7 +582,12 @@ class Tensor:
 
     def sqrt(self) -> "Tensor":
         """Elementwise square root."""
-        out = Tensor(np.sqrt(self.data), (self,), "sqrt", self.requires_grad)
+        out = Tensor(
+            data=np.sqrt(self.data),
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="sqrt",
+            requires_grad=self.requires_grad,
+        )
 
         def _backward() -> None:
             if self.requires_grad:
@@ -566,7 +598,12 @@ class Tensor:
 
     def tanh(self) -> "Tensor":
         """Elementwise hyperbolic tangent."""
-        out = Tensor(np.tanh(self.data), (self,), "tanh", self.requires_grad)
+        out = Tensor(
+            data=np.tanh(self.data),
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="tanh",
+            requires_grad=self.requires_grad,
+        )
 
         def _backward() -> None:
             if self.requires_grad:
@@ -577,7 +614,12 @@ class Tensor:
 
     def relu(self) -> "Tensor":
         """Elementwise rectified linear unit."""
-        out = Tensor(np.maximum(0.0, self.data), (self,), "relu", self.requires_grad)
+        out = Tensor(
+            data=np.maximum(0.0, self.data),
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="relu",
+            requires_grad=self.requires_grad,
+        )
 
         def _backward() -> None:
             if self.requires_grad:
@@ -592,7 +634,12 @@ class Tensor:
         x = self.data
         inner = c * (x + 0.044715 * x ** 3)
         t = np.tanh(inner)
-        out = Tensor(0.5 * x * (1.0 + t), (self,), "gelu", self.requires_grad)
+        out = Tensor(
+            data=0.5 * x * (1.0 + t),
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="gelu",
+            requires_grad=self.requires_grad,
+        )
 
         def _backward() -> None:
             if self.requires_grad:
@@ -610,7 +657,12 @@ class Tensor:
         """Return a view of the tensor with a new shape."""
         if len(shape) == 1 and isinstance(shape[0], (tuple, list)):
             shape = tuple(shape[0])
-        out = Tensor(self.data.reshape(shape), (self,), "reshape", self.requires_grad)
+        out = Tensor(
+            data=self.data.reshape(shape),
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="reshape",
+            requires_grad=self.requires_grad,
+        )
 
         def _backward() -> None:
             if self.requires_grad:
@@ -625,7 +677,12 @@ class Tensor:
             axes = tuple(axes[0])
         if len(axes) == 0:
             axes = tuple(reversed(range(self.data.ndim)))
-        out = Tensor(self.data.transpose(axes), (self,), "transpose", self.requires_grad)
+        out = Tensor(
+            data=self.data.transpose(axes),
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="transpose",
+            requires_grad=self.requires_grad,
+        )
 
         def _backward() -> None:
             if self.requires_grad:
@@ -645,10 +702,10 @@ class Tensor:
         broadcast back to ``self.shape`` via ``_expand_reduced``.
         """
         out = Tensor(
-            self.data.sum(axis=axis, keepdims=keepdims),
-            (self,),
-            "sum",
-            self.requires_grad,
+            data=self.data.sum(axis=axis, keepdims=keepdims),
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="sum",
+            requires_grad=self.requires_grad,
         )
 
         def _backward() -> None:
@@ -661,10 +718,10 @@ class Tensor:
     def mean(self, axis: Axis = None, keepdims: bool = False) -> "Tensor":
         """Arithmetic mean over ``axis``."""
         out = Tensor(
-            self.data.mean(axis=axis, keepdims=keepdims),
-            (self,),
-            "mean",
-            self.requires_grad,
+            data=self.data.mean(axis=axis, keepdims=keepdims),
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="mean",
+            requires_grad=self.requires_grad,
         )
         # Number of elements collapsed into each output entry.
         n = self.data.size / out.data.size
@@ -680,10 +737,10 @@ class Tensor:
     def var(self, axis: Axis = None, keepdims: bool = False) -> "Tensor":
         """Variance over ``axis`` (used by LayerNorm). Uses population (ddof=0)."""
         out = Tensor(
-            self.data.var(axis=axis, keepdims=keepdims),
-            (self,),
-            "var",
-            self.requires_grad,
+            data=self.data.var(axis=axis, keepdims=keepdims),
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="var",
+            requires_grad=self.requires_grad,
         )
         mu = self.data.mean(axis=axis, keepdims=True)
         n = self.data.size / out.data.size
@@ -699,10 +756,10 @@ class Tensor:
     def max(self, axis: Axis = None, keepdims: bool = False) -> "Tensor":
         """Maximum over ``axis`` (used for numerically stable softmax)."""
         out = Tensor(
-            self.data.max(axis=axis, keepdims=keepdims),
-            (self,),
-            "max",
-            self.requires_grad,
+            data=self.data.max(axis=axis, keepdims=keepdims),
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="max",
+            requires_grad=self.requires_grad,
         )
 
         def _backward() -> None:
@@ -725,7 +782,12 @@ class Tensor:
         shifted = self.data - self.data.max(axis=axis, keepdims=True)
         e = np.exp(shifted)
         sm = e / e.sum(axis=axis, keepdims=True)
-        out = Tensor(sm, (self,), "softmax", self.requires_grad)
+        out = Tensor(
+            data=sm,
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="softmax",
+            requires_grad=self.requires_grad,
+        )
 
         def _backward() -> None:
             if self.requires_grad:
@@ -809,7 +871,12 @@ class Tensor:
 
     def __getitem__(self, idx) -> "Tensor":
         """Indexing / slicing (used for embedding lookups)."""
-        out = Tensor(self.data[idx], (self,), "getitem", self.requires_grad)
+        out = Tensor(
+            data=self.data[idx],
+            _children=(self,),   # recorded as out._prev -> wires out into the graph
+            _op="getitem",
+            requires_grad=self.requires_grad,
+        )
 
         def _backward() -> None:
             if self.requires_grad:
@@ -881,10 +948,10 @@ def cat(tensors: Iterable["Tensor"], axis: int = 0) -> Tensor:
     """
     tensors = [Tensor._as_tensor(t) for t in tensors]
     out = Tensor(
-        np.concatenate([t.data for t in tensors], axis=axis),
-        tuple(tensors),
-        "cat",
-        any(t.requires_grad for t in tensors),
+        data=np.concatenate([t.data for t in tensors], axis=axis),
+        _children=tuple(tensors),   # every input recorded as out._prev -> graph edges
+        _op="cat",
+        requires_grad=any(t.requires_grad for t in tensors),
     )
 
     # Sizes along the concat axis -> the split points in the output gradient.
