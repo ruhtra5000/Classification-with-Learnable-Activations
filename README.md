@@ -27,7 +27,7 @@ something you can read line by line:
 
 The same drawing scales up unchanged: a single `wᵀ @ x` op, or a whole stack of
 `Linear` layers — it is always *a bigger graph of the same kind* (run
-`python -m learn.viz_nn` to see three activated layers chained together).
+`python -m learn.viz02_nn` to see three activated layers chained together).
 
 ## Who is it for?
 
@@ -52,7 +52,7 @@ The same drawing scales up unchanged: a single `wᵀ @ x` op, or a whole stack o
   gradients.
 - Choose the precision and RNG seed of the demo on the command line, so the
   same walkthrough can be shown under different settings
-  (`python -m learn.viz_engine --precision float32 --seed 0`).
+  (`python -m learn.viz01_engine --precision float32 --seed 0`).
 
 ### For researchers
 
@@ -84,8 +84,8 @@ The project is being built bottom-up. What exists today:
   collection, `zero_grad`, `train`/`eval`), `Parameter`, `Linear` (with the bias
   folded into the weight via the `x_0 = 1` trick), and `xavier_uniform` are
   implemented. `Embedding`, `LayerNorm`, `Dropout`, `Sequential` are scaffolded.
-- **Visualisations** (`learn/`) — ✅ `viz_engine` (the autograd engine) and
-  `viz_nn` (a stack of `Linear` layers and its chain rule).
+- **Visualisations** (`learn/`) — ✅ `viz01_engine` (the autograd engine) and
+  `viz02_nn` (a stack of `Linear` layers and its chain rule).
 - **Higher layers** — ⏳ scaffolded only: attention (`attention.py`), the
   Transformer encoder (`transformer.py`), optimizers (`optim.py`), losses
   (`loss.py`) and the tokenizer (`tokenizer.py`) still raise
@@ -130,7 +130,7 @@ project root so `bert_cpu` is importable — running the path directly is not).
 With the virtual environment activated:
 
 ```bash
-python -m learn.viz_engine
+python -m learn.viz01_engine
 ```
 
 This standalone run also lets you choose the numerical precision and the RNG
@@ -138,8 +138,8 @@ seed, so you can watch the same walkthrough under different settings and get
 reproducible numbers:
 
 ```bash
-python -m learn.viz_engine --precision float32 --seed 0
-python -m learn.viz_engine --precision float16 --seed 42
+python -m learn.viz01_engine --precision float32 --seed 0
+python -m learn.viz01_engine --precision float16 --seed 42
 ```
 
 - `--precision` picks the engine's float dtype (`float16` / `float32` /
@@ -170,7 +170,7 @@ back to every input.
 engine clicks, move up one level to the `nn` layers:
 
 ```bash
-python -m learn.viz_nn --seed 5      # seed 5 keeps every ReLU unit lively
+python -m learn.viz02_nn --seed 5      # seed 5 keeps every ReLU unit lively
 ```
 
 This walkthrough shows that a `Linear` layer is **just a matrix** (with the bias
@@ -267,14 +267,14 @@ The walkthroughs live in `learn/` and are run as modules from the project root
 (use `-m` so `bert_cpu` is importable, not by path):
 
 ```bash
-python -m learn.viz_engine                               # autograd engine, node by node
-python -m learn.viz_engine --precision float32 --seed 0  # pick dtype and seed
-python -m learn.viz_nn --seed 5                           # a layer + the chain rule over a stack
+python -m learn.viz01_engine                               # autograd engine, node by node
+python -m learn.viz01_engine --precision float32 --seed 0  # pick dtype and seed
+python -m learn.viz02_nn --seed 5                           # a layer + the chain rule over a stack
 ```
 
-- `viz_engine` — input vector → forward pass → ASCII graph annotated with
+- `viz01_engine` — input vector → forward pass → ASCII graph annotated with
   gradients → step-by-step backward animation.
-- `viz_nn` — a `Linear` layer as a matrix, then three activated layers whose
+- `viz02_nn` — a `Linear` layer as a matrix, then three activated layers whose
   backward pass is shown as a layer-by-layer chain of derivatives.
 
 Both accept `--precision` and `--seed`. (A lightweight `pytest test/test_viz.py`

@@ -70,9 +70,9 @@ def _backward_rule(v: cpu.Tensor) -> "tuple[str, str]":
 
     Spells out the local derivative used by ``v._backward`` so the reader sees
     exactly how each child gradient is computed (the chain-rule step). The
-    children are taken in the same sorted order ``draw_graph`` uses. For matmul
-    this assumes that sorted order matches the engine's ``self @ other`` operand
-    order, which holds for the demo's ``wᵀ @ x``.
+    children are listed in the same sorted order ``draw_graph`` uses. Note that
+    ``_prev`` is a *set*, so the left/right order of a matmul's operands is not
+    recoverable here — the matmul note is therefore phrased generically.
     """
     vname = getattr(v, "label", "") or v._op or "?"
     kids = [
@@ -86,10 +86,21 @@ def _backward_rule(v: cpu.Tensor) -> "tuple[str, str]":
         z = kids[0]
         return (f"grad({z}) = grad({vname}) * (1 - {vname}^2)",
                 f"local derivative of tanh: d{vname}/d{z} = 1 - {vname}^2")
+    if v._op == "relu" and len(kids) == 1:
+        z = kids[0]
+        return (f"grad({z}) = grad({vname}) * ({z} > 0)",
+                "relu passes the gradient where its input was positive, blocks it elsewhere")
+    if v._op == "gelu" and len(kids) == 1:
+        z = kids[0]
+        return (f"grad({z}) = grad({vname}) * gelu'({z})",
+                "gelu's smooth local derivative")
     if v._op == "@" and len(kids) == 2:
-        a, b = kids  # for the demo: a = wᵀ, b = x
-        return (f"grad({a}) = grad({vname}) @ {_T(b)},   grad({b}) = {_T(a)} @ grad({vname})",
-                "matmul backward: upstream grad times the *other* factor, transposed")
+        a, b = kids
+        return (f"grad({a}), grad({b}): upstream grad times the *other* factor, transposed",
+                "matmul backward: dA = grad @ Bᵀ, dB = Aᵀ @ grad (A, B in forward order)")
+    if v._op == "cat":
+        return (f"each input gets its own slice of grad({vname})",
+                "concatenation just routes each contiguous slice of the gradient back")
     if v._op == "transpose" and len(kids) == 1:
         c = kids[0]
         return (f"grad({c}) = grad({vname})ᵀ",
@@ -141,9 +152,11 @@ def draw_backward_steps(root: cpu.Tensor) -> None:
     root.grad = np.ones_like(root.data)
     known = {id(root)}
 
+    out_name = getattr(root, "label", "") or root._op or "out"
     step = 0
     print(console.label(f"\nSTEP {step}") + console.text(": seed the output, ")
-          + console.math("grad(y) = dy/dy = 1") + console.text("; everything else is '-'"))
+          + console.math(f"grad({out_name}) = d{out_name}/d{out_name} = 1")
+          + console.text("; everything else is '-'"))
     draw_graph(root, known)
 
     processed: set = set()
@@ -231,6 +244,9 @@ def demo_gradient_graph() -> None:
         + console.math("w") + console.text(") is ") + console.math("dy/dw") + console.text("."))
     print(console.text("The table below lays out the computational graph, one row per node, and is\nwhere each ")
         + console.label("grad") + console.text(" gets computed (still '-' until backprop reaches it):\n"))
+
+    print(console.text("For an accessible introduction to computational graphs, see Andrew Ng's\nexplanation here: ")
+        + console.value("https://youtu.be/hCP1vGoCdYU?si=DvIRDH0MucRckYcU"))
 
     draw_graph(y, known=set())
 

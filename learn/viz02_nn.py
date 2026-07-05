@@ -1,7 +1,7 @@
 """Didactic visualisation: a linear layer is a matrix, and stacking layers
 builds a chain of derivatives.
 
-Where ``viz_engine.py`` shows a *single* node-level graph, this walkthrough
+Where ``viz01_engine.py`` shows a *single* node-level graph, this walkthrough
 moves up one level of abstraction and shows what ``nn.py`` is really about:
 
 1. a **linear layer is just a matrix** (with the bias folded in as row 0), then
@@ -14,8 +14,8 @@ moves up one level of abstraction and shows what ``nn.py`` is really about:
 It is *not* a test: the layers' correctness is checked in ``test/test_nn.py``.
 This file is here to be **read and run**::
 
-    python -m learn.viz_nn                               # defaults: float64, random seed
-    python -m learn.viz_nn --precision float32 --seed 5  # pick dtype and seed
+    python -m learn.viz02_nn                               # defaults: float64, random seed
+    python -m learn.viz02_nn --precision float32 --seed 5  # pick dtype and seed
 """
 
 import numpy as np
@@ -23,45 +23,7 @@ import numpy as np
 from bert_cpu import engine as cpu
 from bert_cpu import nn
 from learn.console import console
-from learn.viz_engine import draw_graph
-
-
-def _act_derivative(name: str, z: np.ndarray) -> np.ndarray:
-    """Return ``act'(z)``, the activation's local slope, computed by the engine.
-
-    Rather than hand-coding each derivative here, we let the autograd engine do
-    it: for an elementwise activation, ``act(z).sum().backward()`` leaves
-    ``z.grad[i] = act'(z_i)``. So this returns the *same* local slope the engine
-    uses inside its backward pass — the very factor the chain rule multiplies by.
-    """
-    t = cpu.Tensor(z.copy())
-    getattr(t, name)().sum().backward()
-    return t.grad
-
-
-_LAYER_HEADERS = ["layer", "z = Wᵀ@x", "a = act(z)", "dL/dW"]
-
-
-def _draw_layer_table(rows: list) -> None:
-    """Print a ``layer | z | a | dL/dW`` table, one row per layer (output on top).
-
-    This is the layer-level analogue of ``draw_graph`` in ``viz_engine.py``:
-    instead of one row per *node*, there is one row per *layer*, showing its
-    pre-activation ``z = Wᵀ @ x``, its activation ``a = act(z)`` and (once the
-    backward pass has reached it) the gradient ``dL/dW`` of the loss w.r.t. that
-    layer's weight. ``dL/dW`` is a matrix, so it is drawn as a stacked table (the
-    row grows to as many lines as the matrix has rows); ``z`` and ``a`` are
-    vectors and stay on one line. A ``-`` means the chain rule has not reached
-    that layer yet, so redrawing with more filled-in rows animates the backward
-    pass from the output downwards.
-    """
-    print()
-    print(console.format_table(
-        rows,
-        headers=_LAYER_HEADERS,
-        col_colors=[console.math, console.value, console.value, console.value],
-    ))
-    print()
+from learn.viz01_engine import draw_graph, draw_backward_steps
 
 
 def demo_linear_chain() -> None:
@@ -102,6 +64,12 @@ def demo_linear_chain() -> None:
     # parameter (row 0 of each is that layer's bias). Show them, and the input.
     print(console.text("\nThe network is its three weight matrices ") + console.math("W1, W2, W3")
           + console.text(" (first row of each is\nthe neuron's bias in that layer). Together they hold every parameter the network has:\n"))
+
+    print(console.text("For how a network's layers are modelled as matrices, see Andrew Ng's two\nvideos in sequence: ")
+        + console.value("https://youtu.be/CcRkHl75Z-Y?si=JRsu9U6zsEjpkzfC")
+        + console.text("\n                    ")
+        + console.value("https://youtu.be/rMOdrD61IoU?si=2FNLuNEHVKkG6TiB") + console.text("\n"))
+
     for w in (layer1.weight, layer2.weight, layer3.weight):
         print(console.math(f"  {w.label}  (shape {w.shape[0]}x{w.shape[1]}) ="))
         print(console.fmt_matrix(w.data, indent="      "))
@@ -135,78 +103,63 @@ def demo_linear_chain() -> None:
     console.kv("  ŷ  = gelu(z3)        = ", console.fmt_auto(a3.data), color=console.math)
     console.kv("  L  = sum(ŷ)          = ", console.fmt_auto(loss.data), "    (a scalar to differentiate)", color=console.math)
 
-    print(console.text("\nThose six steps are really one ") + console.label("computational graph")
-          + console.text(". Here is the whole stack —\nthe output ") + console.math("L")
-          + console.text(" at the top, down through every op to the inputs ") + console.math("x")
-          + console.text(" and\nthe weights ") + console.math("W1, W2, W3")
-          + console.text(" (each ") + console.math("Linear") + console.text(" is a ")
-          + console.math("cat") + console.text(" + ") + console.math("@") + console.text("):"))
+    # ------------------------------------------------------------------ #
+    # Why it is one graph: follow ._prev iteratively from ŷ
+    # ------------------------------------------------------------------ #
+    print(console.text("\nHow do we know these separate steps are ") + console.label("one graph")
+          + console.text("? Every ") + console.math("Tensor")
+          + console.text(" keeps the\ntensors it was built from in its ") + console.math("._prev")
+          + console.text(" set. Start the frontier at ") + console.math("ŷ")
+          + console.text(" and\nrepeatedly replace it with the union of its operands ")
+          + console.math("(node._prev)") + console.text(":"))
+
+    def node_name(n):
+        # The only unlabelled nodes are the bias-trick constant, whose value is 1.
+        return getattr(n, "label", None) or n._op or "1"
+
+    print(console.text("\n  start:    { ") + console.math("ŷ") + console.text(" }"))
+    frontier = {a3}                                       # a3 is labelled "ŷ"
+    while True:
+        nxt = set()
+        for node in frontier:
+            nxt |= node._prev                             # follow every link
+        if not nxt:
+            print(console.text("  ._prev →  { }   ") + console.text("(empty — the leaves: the input ")
+                  + console.math("x") + console.text(", the weights, the bias ")
+                  + console.math("1") + console.text(")"))
+            break
+        names = ", ".join(sorted(node_name(n) for n in nxt))
+        print(console.text("  ._prev →  { ") + console.math(names) + console.text(" }"))
+        frontier = nxt
+
+    print(console.text("\nFollowing ") + console.math("._prev")
+          + console.text(" alone swept from ") + console.math("ŷ")
+          + console.text(" to every leaf, so the steps really are ") + console.label("one graph")
+          + console.text(".\nHere it is drawn, the output ") + console.math("L")
+          + console.text(" on top down to the inputs ") + console.math("x, W1, W2, W3")
+          + console.text(":"))
     draw_graph(loss, known=set())
-    print(console.text("It is exactly the engine's graph from ") + console.math("viz_engine")
+    print(console.text("It is exactly the engine's graph from ") + console.math("viz01_engine")
           + console.text(", just bigger: three ") + console.math("Wᵀ @ [1; ·]")
           + console.text(" blocks chained through their activations."))
 
-    # Run the real autograd; the narration below reads the engine's gradients.
-    for p in (x, layer1.weight, layer2.weight, layer3.weight):
-        p.zero_grad()
-    loss.backward()
+    # Now replay the backward pass over that SAME graph, node by node — exactly
+    # what viz01_engine does, just on a bigger graph. Each step seeds/reveals one
+    # more gradient, redraws the table, and prints the chain-rule step it used.
+    print(console.text("\nNow the ") + console.label("backward pass")
+          + console.text(": seed ") + console.math("dL/dL = 1")
+          + console.text(" and walk the SAME graph in reverse. Each step\nfills in one more ")
+          + console.label("grad") + console.text(" and shows the chain-rule computation between the tables:"))
+    draw_backward_steps(loss)
 
-    # output-on-top ordering, like draw_graph
-    specs = [
-        ("layer 3", layer3, z3, a3, "gelu", a2, "a2"),
-        ("layer 2", layer2, z2, a2, "tanh", a1, "a1"),
-        ("layer 1", layer1, z1, a1, "relu", x, "x"),
-    ]
-
-    def make_rows(known: set) -> list:
-        rows = []
-        for name, layer, z, a, _act, _prev, _pn in specs:
-            # Everything is shown in its mathematical shape: z and a as column
-            # vectors, dL/dW as a matrix (all stacked by ``format_table``).
-            g = console.fmt_auto_plain(layer.weight.grad) if name in known else "-"
-            rows.append([name, console.fmt_auto_plain(z.data), console.fmt_auto_plain(a.data), g])
-        return rows
-
-    print(console.text("\nBackprop seeds the output, ") + console.math("dL/dŷ = dL/dL · dL/dŷ = 1")
-          + console.text(", then walks back layer by layer.\nEach ") + console.label("dL/dW")
-          + console.text(" is still '-' until the chain rule reaches its layer:"))
-    known: set = set()
-    _draw_layer_table(make_rows(known))
-
-    for step, (name, layer, z, a, act, prev, prev_name) in enumerate(specs, start=1):
-        slope = _act_derivative(act, z.data)            # act'(z), the local slope
-        upstream = a.grad                               # dL/da  (arriving at this layer)
-        dz = z.grad                                     # dL/dz = dL/da ⊙ act'(z)
-        dW = layer.weight.grad                          # dL/dW = [1; a_prev] @ (dL/dz)ᵀ
-        dprev = prev.grad                               # dL/d(a_prev) = W[1:] @ dL/dz
-
-        print(console.label(f"\nSTEP {step}") + console.text(": backprop through ")
-              + console.math(name) + console.text("  (activation ") + console.math(act) + console.text(")"))
-        # Every quantity is shown in its mathematical shape: column vectors stack
-        # vertically and the weight gradient is a matrix (``kv`` drops multi-line
-        # values onto the lines below the label).
-        console.kv("        upstream            dL/d" + a.label + " = ", console.fmt_auto(upstream), color=console.math)
-        console.kv("        activation slope    " + act + "'(" + z.label + ") = ", console.fmt_auto(slope),
-                   "   [from the engine]", color=console.math)
-        console.kv("     -> pre-activation grad  dL/d" + z.label + " = dL/d" + a.label + " ⊙ " + act + "'(" + z.label + ") = ",
-                   console.fmt_auto(dz), color=console.math)
-        console.kv("        weight grad         dL/dW = [1; " + prev_name + "] @ (dL/d" + z.label + ")ᵀ = ",
-                   console.fmt_auto(dW), color=console.math)
-        console.kv("        propagate back      dL/d" + prev_name + " = W[1:] @ dL/d" + z.label + " = ",
-                   console.fmt_auto(dprev), "   (the bias row is dropped)", color=console.math)
-
-        known.add(name)
-        _draw_layer_table(make_rows(known))
-
-    print(console.text("Each step multiplied the incoming gradient by two local factors — the\nactivation slope ")
-          + console.math("act'(z)") + console.text(" and the weight matrix ") + console.math("W")
-          + console.text(". Composing those\nfactors from the output back to the input ") + console.text("is")
-          + console.text(" the chain rule; ") + console.math("backward()")
-          + console.text(" just\nautomates it over the whole stack."))
+    print(console.text("\nEvery node's ") + console.label("grad") + console.text(" is now filled — the weights ")
+          + console.math("W1, W2, W3") + console.text(" included. Calling ") + console.math("loss.backward()")
+          + console.text("\ndoes exactly this, automatically, from the output ") + console.math("L")
+          + console.text(" back to every input."))
 
 
 # ====================================================================== #
-# Standalone entry point (mirrors viz_engine.main)
+# Standalone entry point (mirrors viz01_engine.main)
 # ====================================================================== #
 def main(argv=None) -> None:
     """Run the layer/chain walkthrough with a chosen precision and RNG seed.
@@ -214,7 +167,7 @@ def main(argv=None) -> None:
     The precision and seed are configured on the engine *before* anything is
     built, so they govern the whole run::
 
-        python -m learn.viz_nn --precision float32 --seed 5
+        python -m learn.viz02_nn --precision float32 --seed 5
     """
     import argparse
 
