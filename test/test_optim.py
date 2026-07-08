@@ -1,8 +1,7 @@
 """Software tests for the parameter optimisers.
 
-An optimiser adds no autograd rule of its own — it only reads ``p.grad`` (filled
-by the engine's ``backward``) and mutates ``p.data`` in place. These tests check
-that mechanical update on two levels:
+An optimiser adds no autograd rule of its own — it only reads ``p.grad`` and updates
+``p.data`` in place. These tests check that mechanical update on two levels:
 
 - **exact single-step algebra** (SGD's update, momentum accumulation, and AdamW's
   decoupled shrink each match a hand computation), and
