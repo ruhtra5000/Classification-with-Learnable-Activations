@@ -250,3 +250,118 @@ def test_three_layer_chain_rule():
     for name, t in params:
         numeric = numeric_gradient(lambda: float(forward().data), t.data)
         assert np.allclose(t.grad, numeric, atol=1e-5), f"gradient mismatch for {name}"
+
+
+# ====================================================================== #
+# Embedding — a gather, not a matmul
+# ====================================================================== #
+def test_embedding_registers_weight_parameter():
+    """An Embedding exposes exactly one ``weight`` parameter of shape (V, D)."""
+    emb = nn.Embedding(10, 4)
+
+    params = emb.parameters()
+    assert len(params) == 1
+    assert emb.weight in params
+    assert all(isinstance(p, nn.Parameter) for p in params)
+
+    names = dict(emb.named_parameters())
+    assert set(names) == {"weight"}
+    assert names["weight"].shape == (10, 4)
+
+
+def test_embedding_forward_shape_and_gather():
+    """``emb(ids)`` gathers table rows: ids (batch, seq) -> (batch, seq, D)."""
+    cpu.set_seed(0)
+    V, D = 10, 4
+    emb = nn.Embedding(V, D)
+    ids = np.array([[1, 3, 3], [0, 9, 2]])          # (batch=2, seq=3)
+
+    out = emb(ids)
+    assert out.shape == (2, 3, D)
+    # Every output vector is exactly the corresponding row of the table.
+    for b in range(ids.shape[0]):
+        for s in range(ids.shape[1]):
+            assert np.allclose(out.data[b, s], emb.weight.data[ids[b, s]])
+
+
+def test_embedding_accepts_tensor_ids():
+    """Ids may arrive as a Tensor; its data is used for the gather."""
+    cpu.set_seed(0)
+    emb = nn.Embedding(6, 3)
+    ids = np.array([2, 5, 0])
+    from_array = emb(ids).data
+    from_tensor = emb(cpu.Tensor(ids, requires_grad=False)).data
+    assert np.allclose(from_array, from_tensor)
+
+
+def test_embedding_padding_idx_is_zero():
+    """With ``padding_idx`` set, that row starts as the zero vector."""
+    emb = nn.Embedding(8, 5, padding_idx=0)
+    assert np.all(emb.weight.data[0] == 0.0)
+    # ...while the other rows are not all zero.
+    assert np.any(emb.weight.data[1:] != 0.0)
+
+
+def test_embedding_repeated_ids_accumulate_grad():
+    """Repeated ids sum their gradients into one row; unused rows stay at zero.
+
+    This is the correctness heart of ``Embedding``: it adds no backward rule, so
+    what we verify is that the engine's ``__getitem__`` (``np.add.at``) routes and
+    *accumulates* the upstream gradient per id. With ``loss = emb(ids).sum()`` each
+    used cell contributes 1, so a row's gradient equals how many times its id
+    appears.
+    """
+    cpu.set_seed(0)
+    V, D = 5, 3
+    emb = nn.Embedding(V, D)
+    ids = np.array([[1, 1, 2]])                     # id 1 twice, id 2 once
+
+    emb(ids).sum().backward()
+
+    assert np.allclose(emb.weight.grad[1], 2.0)     # id 1 used twice
+    assert np.allclose(emb.weight.grad[2], 1.0)     # id 2 used once
+    # Ids 0, 3, 4 never appear -> no gradient.
+    for unused in (0, 3, 4):
+        assert np.allclose(emb.weight.grad[unused], 0.0)
+
+
+def test_embedding_gradcheck():
+    """Finite-difference gradient check of the table for a scalar objective.
+
+    ``loss = mean( emb(ids) ** 2 )``. The analytic ``weight.grad`` from
+    ``backward`` must match central finite differences — including the correct
+    accumulation over the repeated id.
+    """
+    cpu.set_seed(0)
+    emb = nn.Embedding(6, 4)
+    ids = np.array([[0, 2, 2], [5, 1, 2]])          # id 2 repeats across the batch
+    W = emb.weight
+
+    def forward():
+        return (emb(ids) ** 2).mean()
+
+    W.zero_grad()
+    forward().backward()
+
+    numeric = numeric_gradient(lambda: float(forward().data), W.data)
+    assert np.allclose(W.grad, numeric, atol=1e-5)
+
+
+# ====================================================================== #
+# normal_ initialisation
+# ====================================================================== #
+def test_normal_init_stats_and_reproducibility():
+    """``normal_`` draws N(mean, std) of the right shape and is seed-reproducible."""
+    shape = (400, 300)
+
+    cpu.set_seed(0)
+    w1 = nn.normal_(shape, mean=0.0, std=0.02)
+    assert w1.shape == shape
+    # Large sample -> empirical mean/std close to the requested Gaussian.
+    assert abs(float(w1.data.mean())) < 1e-3
+    assert abs(float(w1.data.std()) - 0.02) < 1e-3
+
+    # Same seed -> identical draw (centralised RNG guarantee).
+    cpu.set_seed(0)
+    w2 = nn.normal_(shape, mean=0.0, std=0.02)
+    assert np.allclose(w1.data, w2.data)

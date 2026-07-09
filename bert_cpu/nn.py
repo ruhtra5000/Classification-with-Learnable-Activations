@@ -200,14 +200,72 @@ class Linear(Module):
 
 
 class Embedding(Module):
-    """Lookup table mapping integer ids to dense vectors."""
+    """Lookup table mapping integer ids to dense, learnable vectors.
 
-    def __init__(self, num_embeddings: int, embedding_dim: int) -> None:
-        raise NotImplementedError
+    An ``Embedding`` is a matrix ``weight`` of shape ``(num_embeddings,
+    embedding_dim)`` — one row per vocabulary id. The forward pass is a pure
+    **gather**: given a batch of ids, it returns the corresponding rows. There is
+    no matrix multiply and, notably, **no backward rule of its own** — exactly the
+    way ``Linear`` is "just ``cat`` + ``@``", an ``Embedding`` is "just an index".
+
+    Why indexing already gives the right gradient
+    ---------------------------------------------
+    The lookup is a single call into the engine's ``Tensor.__getitem__``. On the
+    backward pass that op runs ``np.add.at(weight.grad, idx, out.grad)``, which
+    *accumulates* rather than overwrites. So when the same id appears at many
+    positions in a batch (a common token like ``[PAD]`` or "the"), every
+    occurrence's upstream gradient is summed back into that one shared row — which
+    is precisely ``d loss / d weight[id]``. Ids that never appear receive no
+    contribution and keep a zero gradient, so the optimizer only moves rows the
+    batch actually used.
+
+    Layout
+    ------
+    Unlike ``Linear`` (column-oriented ``(features, batch)``), ``Embedding``
+    follows the standard PyTorch/BERT layout so it feeds the attention stack
+    directly: ``weight`` is ``(V, D)`` and, for ids of any shape, the output is
+    ``(*ids.shape, D)`` — e.g. ids ``(batch, seq)`` give ``(batch, seq, D)``.
+
+    Parameters
+    ----------
+    num_embeddings : int
+        Vocabulary size ``V`` (number of rows in the table).
+    embedding_dim : int
+        Size ``D`` of each embedding vector.
+    padding_idx : int, optional
+        If given, that row is initialised to the zero vector (the usual
+        convention for the ``[PAD]`` token). It is still a normal learnable row —
+        this only sets its starting value.
+    """
+
+    def __init__(
+        self,
+        num_embeddings: int,
+        embedding_dim: int,
+        padding_idx: Optional[int] = None,
+    ) -> None:
+        self.num_embeddings = num_embeddings
+        self.embedding_dim = embedding_dim
+        self.padding_idx = padding_idx
+
+        # BERT-style small normal init; the table is a single learnable Parameter.
+        W = normal_((num_embeddings, embedding_dim)).data
+        if padding_idx is not None:
+            W[padding_idx] = 0.0            # pad token starts as the zero vector
+        self.weight: Parameter = Parameter(W)
 
     def forward(self, idx) -> Tensor:
-        """Gather rows of the table for the given integer ids."""
-        raise NotImplementedError
+        """Gather rows of the table for the given integer ids.
+
+        ``idx`` may be a Python list, a NumPy integer array, or a ``Tensor`` of
+        ids (its ``data`` is used); it is coerced to an integer array. The single
+        indexing op below builds the whole forward *and* backward — see the class
+        docstring for why ``np.add.at`` makes the gathered gradient correct.
+        """
+        if isinstance(idx, Tensor):
+            idx = idx.data
+        idx = np.asarray(idx, dtype=int)
+        return self.weight[idx]            # (*idx.shape, embedding_dim)
 
 
 class LayerNorm(Module):
@@ -274,5 +332,30 @@ def xavier_uniform(in_features: int, out_features: int) -> Tensor:
 
 
 def normal_(shape, mean: float = 0.0, std: float = 0.02) -> Tensor:
-    """BERT-style truncated-ish normal initialisation."""
-    raise NotImplementedError
+    """BERT-style normal initialisation for a weight tensor.
+
+    Draws every element independently from a Gaussian ``N(mean, std**2)``. BERT
+    initialises its embedding tables and linear layers this way, with the small
+    default ``std = 0.02`` (Devlin et al., 2019): keeping the initial weights tiny
+    stops the summed token/position/segment embeddings — and the deep residual
+    stack above them — from starting with an exploding variance.
+
+    Like ``xavier_uniform``, the draw flows through NumPy's global RNG, so a prior
+    ``set_seed`` makes it reproducible, and the dtype follows the engine's current
+    ``default_dtype``.
+
+    Parameters
+    ----------
+    shape : int or tuple of int
+        Shape of the tensor to create (e.g. ``(num_embeddings, embedding_dim)``).
+    mean, std : float
+        Mean and standard deviation of the Gaussian (BERT defaults ``0.0`` /
+        ``0.02``).
+
+    Returns
+    -------
+    Tensor
+        A weight tensor of the requested shape (``requires_grad=True``).
+    """
+    data = np.random.normal(mean, std, size=shape)
+    return Tensor(data.astype(engine.default_dtype))
