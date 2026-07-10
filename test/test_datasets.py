@@ -71,3 +71,59 @@ def test_one_hot_blocks_sum_to_one_per_sample():
 def test_invalid_split_raises():
     with pytest.raises(ValueError):
         datasets.load_adult("validation")
+
+
+# ====================================================================== #
+# Flatland — the text corpus
+# ====================================================================== #
+def test_flatland_loads_text_paragraphs_sentences():
+    """The corpus loads with non-empty text, paragraphs, and sentences."""
+    flat = datasets.load_flatland()
+
+    assert isinstance(flat.text, str) and len(flat.text) > 10000
+    assert flat.n_paragraphs > 100
+    assert flat.n_sentences > flat.n_paragraphs      # paragraphs split into more
+    assert len(flat) == flat.n_sentences             # len() counts sentences
+    assert all(isinstance(s, str) and s for s in flat.sentences)
+
+
+def test_flatland_strips_gutenberg_boilerplate():
+    """The Gutenberg header/footer is removed from the cleaned text."""
+    flat = datasets.load_flatland()
+
+    # The marker lines and licensing/catalogue text must be gone...
+    assert "START OF THE PROJECT GUTENBERG" not in flat.text
+    assert "END OF THE PROJECT GUTENBERG" not in flat.text
+    assert "www.gutenberg.org" not in flat.text
+    # ...while the actual novella is present.
+    assert "Flatland" in flat.text
+
+
+def test_flatland_paragraphs_have_no_illustration_markers():
+    """Whitespace is collapsed and pure ``[Illustration]`` markers are dropped."""
+    flat = datasets.load_flatland()
+
+    for para in flat.paragraphs:
+        assert "\n" not in para                      # internal newlines collapsed
+        assert para == para.strip()
+        assert para != "[Illustration]"
+
+
+def test_flatland_feeds_tokenizer():
+    """The sentences train the WordPiece tokenizer end to end.
+
+    Uses a slice + small vocab so the (deliberately un-optimised, clarity-first)
+    WordPiece training loop stays fast in the test suite.
+    """
+    from bert_cpu import Tokenizer
+
+    flat = datasets.load_flatland()
+    tok = Tokenizer()
+    tok.build_vocab(flat.sentences[:150], max_size=300)
+
+    assert tok.vocab_size <= 300
+    # A common word from the book round-trips through encode/decode (decode
+    # re-merges any ## pieces, so this holds even if "square" is split).
+    ids = tok.encode("the square", max_len=8)
+    assert ids[0] == tok.cls_id
+    assert tok.decode(ids) == "the square"

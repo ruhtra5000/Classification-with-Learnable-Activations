@@ -1,9 +1,20 @@
 """Loaders for the example datasets bundled with BERT-cpu.
 
-Right now this is just the **UCI Adult / Census-Income** dataset (predict whether
-a person earns ``>50K`` a year from 14 demographic features). The raw files live
-next to this module in ``datasets/adult/`` — ``adult.data`` (train) and
-``adult.test`` (test).
+Two datasets live here, for the two things this project trains:
+
+- **UCI Adult / Census-Income** (``load_adult``) — a *tabular* classification set
+  (predict whether a person earns ``>50K`` a year from 14 demographic features).
+  The raw files live in ``datasets/adult/`` — ``adult.data`` (train) and
+  ``adult.test`` (test).
+- **Flatland** (``load_flatland``) — a *text* corpus, the full public-domain
+  novella *Flatland: A Romance of Many Dimensions* (Edwin Abbott, Project
+  Gutenberg eBook #97), in ``datasets/flatland/corpus.txt``. This is the corpus
+  for the tokenizer and masked-language-model side of the project: raw prose to
+  learn a vocabulary from and to mask-and-predict over.
+
+Everything below the Adult section (encoding, standardisation, one-hot) is
+specific to that tabular set; the Flatland loader at the bottom is much simpler —
+it just cleans the Gutenberg boilerplate and hands back text.
 
 The loader returns data that is **ready to feed the engine**: every feature is
 numeric and the layout follows the project's *column-oriented* convention
@@ -27,6 +38,7 @@ features — a classic mistake this loader avoids by construction.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -225,3 +237,140 @@ def load_adult(split: str = "train") -> AdultDataset:
     return AdultDataset(
         X=X.T, y=y, feature_names=feature_names, categories=categories, split=split
     )
+
+
+# ====================================================================== #
+# Flatland — a plain-text corpus for the tokenizer / masked-LM
+# ====================================================================== #
+
+# The novella sits next to this module regardless of the caller's working dir.
+_FLATLAND_FILE = Path(__file__).resolve().parent / "flatland" / "corpus.txt"
+
+# Project Gutenberg wraps the actual book between these two marker lines. Anything
+# before the first / after the second is licensing and catalogue boilerplate.
+_GUTENBERG_START = "*** START OF THE PROJECT GUTENBERG"
+_GUTENBERG_END = "*** END OF THE PROJECT GUTENBERG"
+
+# A deliberately *naive* sentence splitter: break after ., ! or ? when followed by
+# whitespace. It has no idea about abbreviations ("Mr.", "e.g."), so it will
+# occasionally over-split — fine for a didactic corpus, and documented as such.
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
+
+
+class FlatlandDataset:
+    """The Flatland corpus, cleaned of Gutenberg boilerplate, in three forms.
+
+    The same text is offered at three granularities so the caller picks whatever
+    a task needs — the whole string, paragraphs, or sentences. A ``Tokenizer``
+    trains on any list of strings, so ``build_vocab(ds.sentences)`` or
+    ``build_vocab(ds.paragraphs)`` both work directly.
+
+    Attributes
+    ----------
+    text : str
+        The full book text with the Gutenberg header/footer removed.
+    paragraphs : list of str
+        Blank-line-separated paragraphs, each with internal whitespace collapsed
+        to single spaces (illustration/section markers like ``[Illustration]`` are
+        dropped).
+    sentences : list of str
+        The paragraphs split into sentences by a naive ``.!?`` rule.
+    """
+
+    def __init__(self, text: str, paragraphs: List[str], sentences: List[str]) -> None:
+        self.text = text
+        self.paragraphs = paragraphs
+        self.sentences = sentences
+
+    @property
+    def n_paragraphs(self) -> int:
+        return len(self.paragraphs)
+
+    @property
+    def n_sentences(self) -> int:
+        return len(self.sentences)
+
+    def __len__(self) -> int:
+        # Sentences are the natural training unit, so len() counts them.
+        return len(self.sentences)
+
+    def __repr__(self) -> str:
+        return (f"FlatlandDataset(n_paragraphs={self.n_paragraphs}, "
+                f"n_sentences={self.n_sentences}, chars={len(self.text)})")
+
+
+def _strip_gutenberg(raw: str) -> str:
+    """Return only the text between the Gutenberg START and END marker lines.
+
+    Falls back to the whole input if the markers are absent, so a plain text file
+    without Gutenberg wrapping still loads.
+    """
+    lines = raw.splitlines()
+    start, end = 0, len(lines)
+    for i, line in enumerate(lines):
+        if line.startswith(_GUTENBERG_START):
+            start = i + 1
+        elif line.startswith(_GUTENBERG_END):
+            end = i
+            break
+    return "\n".join(lines[start:end]).strip()
+
+
+def _split_paragraphs(text: str) -> List[str]:
+    """Split cleaned text into paragraphs on blank lines.
+
+    Each paragraph's internal newlines and runs of spaces are collapsed to single
+    spaces, and pure markup markers (a line that is entirely ``[...]``, e.g.
+    ``[Illustration]``) are dropped.
+    """
+    paragraphs: List[str] = []
+    for chunk in re.split(r"\n\s*\n", text):
+        para = " ".join(chunk.split())          # collapse all whitespace
+        if not para:
+            continue
+        if para.startswith("[") and para.endswith("]"):
+            continue                            # illustration / section marker
+        paragraphs.append(para)
+    return paragraphs
+
+
+def _split_sentences(paragraphs: List[str]) -> List[str]:
+    """Break each paragraph into sentences with the naive ``.!?`` rule."""
+    sentences: List[str] = []
+    for para in paragraphs:
+        for sent in _SENTENCE_BOUNDARY.split(para):
+            sent = sent.strip()
+            if sent:
+                sentences.append(sent)
+    return sentences
+
+
+def load_flatland() -> FlatlandDataset:
+    """Load the Flatland text corpus as cleaned paragraphs and sentences.
+
+    Reads ``datasets/flatland/corpus.txt``, strips the Project Gutenberg
+    header/footer, and returns a :class:`FlatlandDataset` exposing ``.text``,
+    ``.paragraphs`` and ``.sentences``. Pure text in, plain Python strings out —
+    nothing here depends on ``bert_cpu``.
+
+    Returns
+    -------
+    FlatlandDataset
+        With ``.text`` (str), ``.paragraphs`` (list of str) and ``.sentences``
+        (list of str).
+
+    Examples
+    --------
+    >>> import datasets
+    >>> flat = datasets.load_flatland()
+    >>> flat.sentences[0]
+    'I call our world Flatland, not because we call it so, ...'
+    >>> from bert_cpu import Tokenizer
+    >>> tok = Tokenizer()
+    >>> tok.build_vocab(flat.sentences, max_size=2000)   # learn WordPiece from it
+    """
+    raw = _FLATLAND_FILE.read_text(encoding="utf-8")
+    text = _strip_gutenberg(raw)
+    paragraphs = _split_paragraphs(text)
+    sentences = _split_sentences(paragraphs)
+    return FlatlandDataset(text=text, paragraphs=paragraphs, sentences=sentences)
