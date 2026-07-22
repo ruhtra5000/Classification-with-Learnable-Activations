@@ -100,8 +100,15 @@ class LearnableActivation(nn.Module):
         self.alpha_silu = nn.Parameter(cpu.ones(1, 1))
 
     def forward(self, x: cpu.Tensor) -> cpu.Tensor:
-        # TODO: 
-        raise NotImplementedError("implement LearnableActivation.forward")
+        # ReLU, GELU, SiLU calculations
+        valueRelu = x.relu()
+        valueGelu = x.gelu()
+        valueSilu = silu(x)
+
+        # Linear combination
+        return (self.alpha_relu * valueRelu + 
+                self.alpha_gelu * valueGelu + 
+                self.alpha_silu * valueSilu )
 
     def coefficients(self) -> dict:
         """The current (unconstrained) coefficients, for reporting."""
@@ -132,8 +139,26 @@ class NormalizedLearnableActivation(nn.Module):
         self.beta_silu = nn.Parameter(cpu.zeros(1, 1))
 
     def forward(self, x: cpu.Tensor) -> cpu.Tensor:
-        # TODO: 
-        raise NotImplementedError("implement NormalizedLearnableActivation.forward")
+        # Softmax manual calculation
+        expRelu = self.beta_relu.exp()
+        expGelu = self.beta_gelu.exp()
+        expSilu = self.beta_silu.exp()
+
+        soma = expRelu + expGelu + expSilu
+
+        piRelu = expRelu / soma
+        piGelu = expGelu / soma
+        piSilu = expSilu / soma
+
+        # ReLU, GELU, SiLU calculations
+        valueRelu = x.relu()
+        valueGelu = x.gelu()
+        valueSilu = silu(x)
+
+        # Linear combination
+        return (piRelu * valueRelu +
+                piGelu * valueGelu + 
+                piSilu * valueSilu )
 
     def coefficients(self) -> dict:
         """The normalized weights π_k, for reporting."""
