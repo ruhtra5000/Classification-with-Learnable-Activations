@@ -46,7 +46,7 @@ consumes it directly. The model outputs logits ``(2, batch)``; we transpose to
 
 HOW TO RUN
 ==========
-    python -m exercises.q05_binary_classification
+    python -m exercises.task_binary_classification
 """
 
 from __future__ import annotations
@@ -55,6 +55,10 @@ import os
 import sys
 
 import numpy as np
+import argparse
+import gc
+
+from exercises.q04_learnable_activations import LearnableActivation, NormalizedLearnableActivation, ReLU
 
 # Make the script runnable *directly* (``python exercises/q05_binary_classification.py``)
 # as well as via ``python -m exercises.q05_binary_classification``. Running a file
@@ -68,12 +72,25 @@ from bert_cpu import nn
 from bert_cpu import optim
 from bert_cpu.loss import cross_entropy
 
+# ============================================================================ #
+# Optional args 
+# ============================================================================ #
+parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--activation",
+    choices=["relu", "learnable", "normalized"],
+    default="relu",
+    help="Activation function to use."
+)
+
+args = parser.parse_args()
 
 # ============================================================================ #
 # The model — a small multilayer perceptron
 # ============================================================================ #
 class AdultMLP(nn.Module):
-    """``Linear -> ReLU -> Linear`` classifier over the Adult features.
+    """``Linear -> Param. Activation or default ReLU -> Linear`` classifier over the Adult features.
 
     Two learnable layers (each a ``nn.Linear`` with its bias folded into the
     weight, the project's bias trick). The hidden ReLU gives the model the
@@ -81,14 +98,13 @@ class AdultMLP(nn.Module):
     produces two logits, one per income class.
     """
 
-    def __init__(self, n_features: int, hidden: int = 64) -> None:
+    def __init__(self, n_features: int, hidden: int = 64, activation = None) -> None:
         self.fc1 = nn.Linear(n_features, hidden)
         self.fc2 = nn.Linear(hidden, 2)
+        self.activation = activation or ReLU()
 
     def forward(self, x: cpu.Tensor) -> cpu.Tensor:
-        # x: (n_features, batch)  ->  logits: (2, batch), column-oriented.
-        h = self.fc1(x).relu()
-        return self.fc2(h)
+        return self.fc2(self.activation(self.fc1(x)))
 
 
 # ============================================================================ #
@@ -162,6 +178,9 @@ def train(
         print(f"  epoch {epoch:3d}/{epochs}   train loss = {float(loss.data):.4f}"
               f"   val loss = {val_loss:.4f}   FLOPs = {epoch_flops:,}")
 
+        del loss
+        gc.collect()
+
     print(f"\nTotal FLOPs over {epochs} epochs: {total_flops:,}"
           f"   (~{total_flops / 1e9:.2f} GFLOP)")
 
@@ -185,8 +204,17 @@ def main() -> None:
     X_tr, y_tr, X_val, y_val = train_val_split(train_ds.X, train_ds.y, val_frac=0.2)
     print(f"Train/val split: {X_tr.shape[1]} train / {X_val.shape[1]} val (20%)\n")
 
-    model = AdultMLP(train_ds.n_features, hidden=64)
-    print(f"Model: Linear({train_ds.n_features}, 64) -> ReLU -> Linear(64, 2)")
+    # Create model with specific activation function
+    if args.activation == "normalized":
+        activation = NormalizedLearnableActivation()
+    elif args.activation == "learnable":
+        activation = LearnableActivation()
+    else:
+        activation = ReLU()
+
+    model = AdultMLP(train_ds.n_features, hidden=64, activation=activation)
+
+    print(f"Model: Linear({train_ds.n_features}, 64) -> {args.activation} -> Linear(64, 2)")
     print(f"Trainable parameter tensors: {len(model.parameters())}\n")
 
     print("Training (full-batch Adam):")
