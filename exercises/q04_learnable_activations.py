@@ -104,7 +104,7 @@ class LearnableActivation(nn.Module):
         valueRelu = x.relu()
         valueGelu = x.gelu()
         valueSilu = silu(x)
-
+        
         # Linear combination
         return (self.alpha_relu * valueRelu + 
                 self.alpha_gelu * valueGelu + 
@@ -166,6 +166,15 @@ class NormalizedLearnableActivation(nn.Module):
         e = np.exp(betas - betas.max())
         pi = e / e.sum()
         return {"pi_relu": float(pi[0]), "pi_gelu": float(pi[1]), "pi_silu": float(pi[2])}
+
+
+# ============================================================================ #
+# Defining ReLU as a class (so an object can be instantiated)
+# ============================================================================ #
+class ReLU(nn.Module):
+
+    def forward(self, x: cpu.Tensor) -> cpu.Tensor:
+        return x.relu()
 
 
 # ============================================================================ #
