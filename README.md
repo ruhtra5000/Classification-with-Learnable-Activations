@@ -24,7 +24,7 @@ pip install -r requirements.txt
 
 ## Rodar Experimentos
 
-Baseline (ReLU, 100 épocas, LR=1^-2)
+Baseline (ReLU, 100 épocas, LR=1x10^-2)
 ```bash
 python -m exercises.task_binary_classification
 ```
@@ -68,22 +68,22 @@ python -m exercises.task_binary_classification --epochs 400
 Selecione a taxa de aprendizado
 
 ```bash
-# Rodar com lr=1e-5 (Experimento 8)
+# Rodar com lr=1x10^-5 (Experimento 8)
 python -m exercises.task_binary_classification --lr 1e-5
 ```
 
 ```bash
-# Rodar com lr=1e-3 (Experimento 9)
+# Rodar com lr=1x10^-3 (Experimento 9)
 python -m exercises.task_binary_classification --lr 1e-3
 ```
 
 ```bash
-# Rodar com lr=5e-2 (Experimento 10)
+# Rodar com lr=5x10^-2 (Experimento 10)
 python -m exercises.task_binary_classification --lr 5e-2
 ```
 
 ```bash
-# Rodar com lr=1e-1 (Experimento 11)
+# Rodar com lr=1x10^-1 (Experimento 11)
 python -m exercises.task_binary_classification --lr 1e-1
 ```
 ---
@@ -111,22 +111,22 @@ python -m exercises.task_binary_classification --activation learnable --epochs 4
 ```
 
 ```bash
-# Rodar com Learnable Activation + lr=1e-5 (Experimento 16)
+# Rodar com Learnable Activation + lr=1x10^-5 (Experimento 16)
 python -m exercises.task_binary_classification --activation learnable --lr 1e-5
 ```
 
 ```bash
-# Rodar com Learnable Activation + lr=1e-3 (Experimento 17)
+# Rodar com Learnable Activation + lr=1x10^-3 (Experimento 17)
 python -m exercises.task_binary_classification --activation learnable --lr 1e-3
 ```
 
 ```bash
-# Rodar com Learnable Activation + lr=5e-2 (Experimento 18)
+# Rodar com Learnable Activation + lr=5x10^-2 (Experimento 18)
 python -m exercises.task_binary_classification --activation learnable --lr 5e-2
 ```
 
 ```bash
-# Rodar com Learnable Activation + lr=1e-1 (Experimento 19)
+# Rodar com Learnable Activation + lr=1x10^-1 (Experimento 19)
 python -m exercises.task_binary_classification --activation learnable --lr 1e-1
 ```
 ---
@@ -154,21 +154,21 @@ python -m exercises.task_binary_classification --activation normalized --epochs 
 ```
 
 ```bash
-# Rodar com Normalized Learnable Activation + lr=1e-5 (Experimento 24)
+# Rodar com Normalized Learnable Activation + lr=1x10^-5 (Experimento 24)
 python -m exercises.task_binary_classification --activation normalized --lr 1e-5
 ```
 
 ```bash
-# Rodar com Normalized Learnable Activation + lr=1e-3 (Experimento 25)
+# Rodar com Normalized Learnable Activation + lr=1x10^-3 (Experimento 25)
 python -m exercises.task_binary_classification --activation normalized --lr 1e-3
 ```
 
 ```bash
-# Rodar com Normalized Learnable Activation + lr=5e-2 (Experimento 26)
+# Rodar com Normalized Learnable Activation + lr=5x10^-2 (Experimento 26)
 python -m exercises.task_binary_classification --activation normalized --lr 5e-2
 ```
 
 ```bash
-# Rodar com Normalized Learnable Activation + lr=1e-1 (Experimento 27)
+# Rodar com Normalized Learnable Activation + lr=1x10^-1 (Experimento 27)
 python -m exercises.task_binary_classification --activation normalized --lr 1e-1
 ```
