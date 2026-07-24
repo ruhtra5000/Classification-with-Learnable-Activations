@@ -84,6 +84,22 @@ parser.add_argument(
     help="Activation function to use."
 )
 
+parser.add_argument(
+    "--epochs",
+    type=int,
+    choices=[25, 50, 100, 200, 400],
+    default=100,
+    help="Number of training epochs."
+)
+
+parser.add_argument(
+    "--lr",
+    type=float,
+    choices=[1e-5, 1e-3, 1e-2, 5e-2, 1e-1],
+    default=1e-2,
+    help="Learning rate."
+)
+
 args = parser.parse_args()
 
 # ============================================================================ #
@@ -217,8 +233,10 @@ def main() -> None:
     print(f"Model: Linear({train_ds.n_features}, 64) -> {args.activation} -> Linear(64, 2)")
     print(f"Trainable parameter tensors: {len(model.parameters())}\n")
 
+    print(f"Total epochs: {args.epochs} | Learning Rate: {args.lr}\n")
+
     print("Training (full-batch Adam):")
-    train(model, X_tr, y_tr, X_val, y_val, epochs=100, lr=1e-2)
+    train(model, X_tr, y_tr, X_val, y_val, epochs=args.epochs, lr=args.lr)
 
     train_acc = accuracy(model, X_tr, y_tr)
     val_acc = accuracy(model, X_val, y_val)
